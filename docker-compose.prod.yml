@@ -1,0 +1,74 @@
+# NullReport — self-hosted, prebuilt-image deploy.
+#
+# This file PULLS the published images from ghcr.io. No source checkout, no
+# build step.
+#
+# Quickest path — the one-line installer does all of the below for you:
+#   curl -fsSL https://raw.githubusercontent.com/nullreport/install/main/install.sh | sh
+#
+# Or by hand:
+#   1) curl -O https://raw.githubusercontent.com/nullreport/install/main/docker-compose.prod.yml
+#   2) create a .env with JWT_SECRET + ENCRYPTION_KEY (see .env.docker.example)
+#   3) docker compose -f docker-compose.prod.yml up -d
+#   4) visit http://localhost:3000
+#
+# TIER selects which image is pulled (free | pro | team). Paid feature code is
+# physically absent from lower-tier images; pro/team additionally require a
+# valid LICENSE_KEY, enforced at runtime by the backend.
+#
+# Images use rolling per-tier tags (:free, :pro, :team). To pin a release,
+# replace ":${TIER:-free}" with ":${TIER:-free}-1.2.3".
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nullreport}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nullreport}
+      POSTGRES_DB: ${POSTGRES_DB:-nullreport}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nullreport} -d ${POSTGRES_DB:-nullreport}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ghcr.io/izzy0101010101/nullreport-backend:${TIER:-free}
+    restart: unless-stopped
+    # Lets the backend reach a local Ollama at host.docker.internal:11434.
+    # Docker Desktop provides this automatically; this makes it work on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nullreport}:${POSTGRES_PASSWORD:-nullreport}@db:5432/${POSTGRES_DB:-nullreport}
+      PORT: 4000
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      # Secrets — REQUIRED; set in .env
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # Without LICENSE_KEY the app runs in free tier.
+      LICENSE_KEY: ${LICENSE_KEY:-}
+      LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://license.nullreport.app}
+      DATA_DIR: /data
+    volumes:
+      - app-data:/data
+
+  frontend:
+    image: ghcr.io/izzy0101010101/nullreport-frontend:${TIER:-free}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
+volumes:
+  db-data:
+  app-data:
