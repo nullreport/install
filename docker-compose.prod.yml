@@ -1,7 +1,7 @@
 # NullReport — self-hosted, prebuilt-image deploy.
 #
-# This file PULLS the published images from ghcr.io. No source checkout, no
-# build step.
+# Unlike docker-compose.yml (which BUILDS from source), this file PULLS the
+# published images from ghcr.io. No source checkout, no build step.
 #
 # Quickest path — the one-line installer does all of the below for you:
 #   curl -fsSL https://raw.githubusercontent.com/nullreport/install/main/install.sh | sh
@@ -12,12 +12,12 @@
 #   3) docker compose -f docker-compose.prod.yml up -d
 #   4) visit http://localhost:3000
 #
-# TIER selects which image is pulled (free | pro | team). Paid feature code is
-# physically absent from lower-tier images; pro/team additionally require a
-# valid LICENSE_KEY, enforced at runtime by the backend.
-#
-# Images use rolling per-tier tags (:free, :pro, :team). To pin a release,
-# replace ":${TIER:-free}" with ":${TIER:-free}-1.2.3".
+# BACKEND_IMAGE / FRONTEND_IMAGE select which images are pulled; the installer
+# sets them from your tier. Free images are public on ghcr. Paid (pro/team)
+# images are private and pulled through the license server's registry, which you
+# authenticate to with `docker login` using your license key (the installer and
+# updater do this for you). Paid feature code is also physically absent from free
+# images, and pro/team require a valid LICENSE_KEY at runtime.
 
 services:
   db:
@@ -36,7 +36,7 @@ services:
       retries: 10
 
   backend:
-    image: ghcr.io/izzy0101010101/nullreport-backend:${TIER:-free}
+    image: ${BACKEND_IMAGE:-ghcr.io/izzy0101010101/nullreport-backend:free}
     restart: unless-stopped
     # Lets the backend reach a local Ollama at host.docker.internal:11434.
     # Docker Desktop provides this automatically; this makes it work on Linux too.
@@ -62,7 +62,7 @@ services:
       - app-data:/data
 
   frontend:
-    image: ghcr.io/izzy0101010101/nullreport-frontend:${TIER:-free}
+    image: ${FRONTEND_IMAGE:-ghcr.io/izzy0101010101/nullreport-frontend:free}
     restart: unless-stopped
     depends_on:
       - backend

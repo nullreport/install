@@ -3,11 +3,13 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/nullreport/install/main/install.sh | sh
 #
-# Optional overrides (prefix the command):
-#   TIER=pro LICENSE_KEY=NR-PRO-xxxxx  curl -fsSL …/install.sh | sh
-#   NULLREPORT_DIR=/opt/nullreport     curl -fsSL …/install.sh | sh
-#   FRONTEND_PORT=8080                 curl -fsSL …/install.sh | sh
-#   WITH_OLLAMA=1                      curl -fsSL …/install.sh | sh   # bundle local AI
+# Optional settings go on the `sh` at the END of the command. A variable placed
+# before `curl` is handed to curl, not to the shell that runs this script, so it
+# would be silently ignored.
+#   curl -fsSL …/install.sh | LICENSE_KEY=NR-PRO-xxxxx sh   # tier detected from the key
+#   curl -fsSL …/install.sh | NULLREPORT_DIR=/opt/nullreport sh
+#   curl -fsSL …/install.sh | FRONTEND_PORT=8080 sh
+#   curl -fsSL …/install.sh | WITH_OLLAMA=1 sh              # bundle local AI
 #
 # Idempotent: re-running reuses the existing .env so your secrets (and the
 # data they encrypt) are never rotated out from under you.
@@ -22,6 +24,40 @@ WITH_OLLAMA="${WITH_OLLAMA:-}"
 
 say() { printf '\033[1;35m▸\033[0m %s\n' "$1"; }
 die() { printf '\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
+
+# 0. License key drives the tier --------------------------------------------
+# Take the key from the environment, or ask once when a terminal is attached
+# (so a free-command run by someone who actually has a key still works). A
+# doubled prefix like NR-PRO-NR-PRO-… (a common paste slip) is repaired.
+normalize_key() { printf '%s' "$1" | sed -E 's/^NR-(PRO|TEAM)-NR-(PRO|TEAM)-/NR-\1-/'; }
+LICENSE_KEY=$(normalize_key "$LICENSE_KEY")
+
+if [ -z "$LICENSE_KEY" ] && [ -r /dev/tty ]; then
+  printf '\033[1;35m▸\033[0m Paste your Pro/Team license key (or press Enter for the free tier): '
+  read ans </dev/tty || ans=""
+  LICENSE_KEY=$(normalize_key "$ans")
+fi
+
+# The key determines the tier; a TIER that disagrees with the key is ignored.
+case "$LICENSE_KEY" in
+  NR-PRO-*)  TIER=pro ;;
+  NR-TEAM-*) TIER=team ;;
+  "")        TIER=free ;;
+  *) die "That doesn't look like a NullReport license key (expected NR-PRO-… or NR-TEAM-…)." ;;
+esac
+
+# Image references. Free images are public on ghcr (no login). Paid images are
+# private and pulled through the license server's registry doorman, which checks
+# the license key at `docker login` time.
+GHCR_OWNER="izzy0101010101"
+REGISTRY_HOST="${REGISTRY_HOST:-license.nullreport.app}"
+if [ "$TIER" = "free" ]; then
+  BACKEND_IMAGE="ghcr.io/$GHCR_OWNER/nullreport-backend:free"
+  FRONTEND_IMAGE="ghcr.io/$GHCR_OWNER/nullreport-frontend:free"
+else
+  BACKEND_IMAGE="$REGISTRY_HOST/nullreport-backend-paid:$TIER"
+  FRONTEND_IMAGE="$REGISTRY_HOST/nullreport-frontend-paid:$TIER"
+fi
 
 # 1. Preflight ---------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || die "Docker is not installed — see https://docs.docker.com/get-docker/"
@@ -69,12 +105,22 @@ ENCRYPTION_KEY=$(gen)
 POSTGRES_PASSWORD=$(gen)
 TIER=$TIER
 LICENSE_KEY=$LICENSE_KEY
+REGISTRY_HOST=$REGISTRY_HOST
+BACKEND_IMAGE=$BACKEND_IMAGE
+FRONTEND_IMAGE=$FRONTEND_IMAGE
 FRONTEND_PORT=$PORT
 COMPOSE_FILE=$COMPOSE_FILES
 EOF
 fi
 
 # 5. Launch ------------------------------------------------------------------
+# Paid images are private; authenticate to the license registry with the key
+# before pulling. Free needs no login.
+if [ "$TIER" != "free" ]; then
+  say "Authenticating to the license registry…"
+  printf '%s' "$LICENSE_KEY" | docker login "$REGISTRY_HOST" -u license --password-stdin >/dev/null \
+    || die "License registry login failed — check that your key is active in your portal."
+fi
 say "Pulling images (tier: $TIER)…"
 docker compose pull
 say "Starting…"

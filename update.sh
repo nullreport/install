@@ -5,8 +5,9 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/nullreport/install/main/update.sh | sh
 #
-# Run it from where you installed NullReport, or point it at the folder:
-#   NULLREPORT_DIR=/opt/nullreport  curl -fsSL …/update.sh | sh
+# Run it from where you installed NullReport, or point it at the folder (the
+# variable goes on `sh`, not before curl):
+#   curl -fsSL …/update.sh | NULLREPORT_DIR=/opt/nullreport sh
 set -eu
 
 DIR="${NULLREPORT_DIR:-nullreport}"
@@ -25,6 +26,17 @@ fi
 
 command -v docker >/dev/null 2>&1 || die "Docker is not installed."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 required."
+
+# Paid images are private; re-authenticate to the license registry before pull.
+# A revoked or lapsed license is refused here, so updates simply stop.
+TIER=$(grep -E '^TIER=' .env 2>/dev/null | cut -d= -f2-)
+if [ -n "${TIER:-}" ] && [ "$TIER" != "free" ]; then
+  KEY=$(grep -E '^LICENSE_KEY=' .env | cut -d= -f2-)
+  RHOST=$(grep -E '^REGISTRY_HOST=' .env | cut -d= -f2-)
+  say "Authenticating to the license registry…"
+  printf '%s' "$KEY" | docker login "${RHOST:-license.nullreport.app}" -u license --password-stdin >/dev/null \
+    || die "License registry login failed — is your license still active?"
+fi
 
 say "Pulling the latest images…"
 docker compose pull
