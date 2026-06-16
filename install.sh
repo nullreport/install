@@ -158,6 +158,17 @@ if [ -f .env ]; then
     set_env COMPOSE_FILE "$COMPOSE_FILES"
   fi
 else
+  # A fresh .env gets a brand-new random POSTGRES_PASSWORD. If a database volume
+  # from a previous install still exists, Postgres keeps the password baked into
+  # that volume on first init and rejects the new one — the backend then
+  # crash-loops with "P1000: Authentication failed". Catch it here with a clear
+  # fix instead of a confusing loop.
+  PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+  if command -v docker >/dev/null 2>&1 && docker volume inspect "${PROJECT}_db-data" >/dev/null 2>&1; then
+    die "Found a leftover database from a previous install ('${PROJECT}_db-data') with no .env to match its password — a fresh install would fail to connect. Wipe it for a clean start:
+    cd '$DIR' && docker compose down -v
+  then re-run this installer. (To keep that old data instead, restore its original .env rather than reinstalling.)"
+  fi
   say "Generating secrets…"
   umask 077
   # A friendly first-run admin password, surfaced to the operator at the end so
