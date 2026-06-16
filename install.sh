@@ -99,6 +99,30 @@ if [ "$TIER" != "free" ]; then
   say "Authenticating to the license registry…"
   printf '%s' "$LICENSE_KEY" | docker login "$REGISTRY_HOST" -u license --password-stdin >/dev/null \
     || die "License registry login failed — check your license key is correct and active (see your portal)."
+
+  # A license activates exactly ONE machine. If it's already bound elsewhere and
+  # this is a fresh install (no local instance to re-bind), runtime activation
+  # will be refused and the app falls back to Free. Warn now rather than letting
+  # the operator discover it after the fact.
+  PROJECT=$(basename "$DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+  STATUS=$(curl -fsS --max-time 8 -X POST "https://$REGISTRY_HOST/api/license/activation-status" \
+    -H 'Content-Type: application/json' -d "{\"licenseKey\":\"$LICENSE_KEY\"}" 2>/dev/null || true)
+  case "$STATUS" in
+    *'"activated":true'*)
+      # No local app-data volume => brand-new machine identity => won't match the
+      # bound machine. (A same-machine reinstall keeps app-data and re-activates.)
+      if ! docker volume inspect "${PROJECT}_app-data" >/dev/null 2>&1; then
+        printf '\033[1;33m▸ Heads up:\033[0m this license is already activated on another machine.\n'
+        printf '  This is a fresh install, so it will run as the \033[1mFree\033[0m tier until you\n'
+        printf '  deactivate that machine in your portal: https://portal.nullreport.app\n'
+        printf '  (Reinstalling on the same machine? Ignore this.)\n'
+        if [ -r /dev/tty ]; then
+          printf '\033[1;35m▸\033[0m Press Enter to continue as Free, or Ctrl-C to cancel and deactivate first. '
+          read _ans </dev/tty || true
+        fi
+      fi
+      ;;
+  esac
 fi
 
 # 2. Workspace ---------------------------------------------------------------
