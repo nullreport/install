@@ -26,13 +26,18 @@ fi
 
 command -v docker >/dev/null 2>&1 || die "Docker is not installed."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 required."
+docker info >/dev/null 2>&1 || die "Docker is installed but not running — start Docker Desktop (or the docker daemon) and re-run."
+
+# Read a value from .env, tolerant of a trailing CR if the file was edited on
+# Windows (a stray \r would otherwise corrupt the key / host).
+env_val() { grep -E "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '\r'; }
 
 # Paid images are private; re-authenticate to the license registry before pull.
 # A revoked or lapsed license is refused here, so updates simply stop.
-TIER=$(grep -E '^TIER=' .env 2>/dev/null | cut -d= -f2-)
+TIER=$(env_val TIER)
 if [ -n "${TIER:-}" ] && [ "$TIER" != "free" ]; then
-  KEY=$(grep -E '^LICENSE_KEY=' .env | cut -d= -f2-)
-  RHOST=$(grep -E '^REGISTRY_HOST=' .env | cut -d= -f2-)
+  KEY=$(env_val LICENSE_KEY)
+  RHOST=$(env_val REGISTRY_HOST)
   say "Authenticating to the license registry…"
   printf '%s' "$KEY" | docker login "${RHOST:-license.nullreport.app}" -u license --password-stdin >/dev/null \
     || die "License registry login failed — is your license still active?"
@@ -42,7 +47,7 @@ say "Pulling the latest images…"
 docker compose pull
 
 say "Restarting…"
-docker compose up -d
+docker compose up -d --remove-orphans
 
 # Reclaim space from the now-unused old image layers.
 docker image prune -f >/dev/null 2>&1 || true
