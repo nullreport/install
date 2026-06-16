@@ -64,6 +64,14 @@ command -v docker >/dev/null 2>&1 || die "Docker is not installed — see https:
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 required (the 'docker compose' plugin)."
 command -v curl >/dev/null 2>&1 || die "curl is required."
 
+# 1b. Authenticate FIRST, so a bad or mistyped key fails fast — before we prompt
+# for Ollama or download anything. Paid images are private; free needs no login.
+if [ "$TIER" != "free" ]; then
+  say "Authenticating to the license registry…"
+  printf '%s' "$LICENSE_KEY" | docker login "$REGISTRY_HOST" -u license --password-stdin >/dev/null \
+    || die "License registry login failed — check your license key is correct and active (see your portal)."
+fi
+
 # 2. Workspace ---------------------------------------------------------------
 mkdir -p "$DIR"
 cd "$DIR"
@@ -121,13 +129,7 @@ EOF
 fi
 
 # 5. Launch ------------------------------------------------------------------
-# Paid images are private; authenticate to the license registry with the key
-# before pulling. Free needs no login.
-if [ "$TIER" != "free" ]; then
-  say "Authenticating to the license registry…"
-  printf '%s' "$LICENSE_KEY" | docker login "$REGISTRY_HOST" -u license --password-stdin >/dev/null \
-    || die "License registry login failed — check that your key is active in your portal."
-fi
+# (Registry auth already happened up top, before the Ollama prompt.)
 say "Pulling images (tier: $TIER)…"
 docker compose pull
 say "Starting…"
