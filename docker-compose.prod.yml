@@ -58,6 +58,10 @@ services:
       LICENSE_KEY: ${LICENSE_KEY:-}
       LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://license.nullreport.app}
       DATA_DIR: /data
+      # First-run admin password. The installer generates one and prints it; if
+      # empty, the backend generates a random password and logs it once. Either
+      # way it must be changed on first sign-in.
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
     volumes:
       - app-data:/data
 
