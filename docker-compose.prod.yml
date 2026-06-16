@@ -64,12 +64,23 @@ services:
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
     volumes:
       - app-data:/data
+    healthcheck:
+      # The backend runs migrations + seed + license bootstrap before it listens,
+      # so gate the frontend on the API actually answering — otherwise nginx
+      # proxies /api to a not-yet-listening backend and serves 502s on first boot.
+      # busybox wget ships in the node:alpine image.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
 
   frontend:
     image: ${FRONTEND_IMAGE:-ghcr.io/izzy0101010101/nullreport-frontend:free}
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-3000}:80"
 

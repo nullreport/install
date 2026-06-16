@@ -52,4 +52,16 @@ docker compose up -d --remove-orphans
 # Reclaim space from the now-unused old image layers.
 docker image prune -f >/dev/null 2>&1 || true
 
-say "Updated — your data was preserved. Give it ~20s, then refresh."
+# Don't claim success until the app actually answers again — a bad migration or
+# boot failure would otherwise be masked by an unconditional "Updated" message.
+PORT=$(env_val FRONTEND_PORT); PORT="${PORT:-3000}"
+say "Waiting for NullReport to come back up…"
+i=0
+while [ "$i" -lt 90 ]; do
+  if curl -fsS -o /dev/null --max-time 2 "http://localhost:$PORT/api/health" 2>/dev/null; then
+    say "Updated — your data was preserved. Up at http://localhost:$PORT"
+    exit 0
+  fi
+  i=$((i + 1)); sleep 1
+done
+die "Updated the images, but the app didn't answer within 90s — it may have failed to start. Check: docker compose logs -f"

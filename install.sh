@@ -177,16 +177,42 @@ EOF
 fi
 
 # 5. Launch ------------------------------------------------------------------
-# (Registry auth already happened up top, before the Ollama prompt.)
+# Up-front auth (above) is keyed on THIS run's tier. On a re-run of a paid
+# install without re-supplying the key, that was skipped but .env still points at
+# the private paid registry — so authenticate from the saved key before pulling,
+# or the pull fails cryptically when the host has no/expired cached credential.
+if [ -z "$LICENSE_KEY" ] && [ -f .env ]; then
+  ENV_TIER=$(grep -E '^TIER=' .env | cut -d= -f2- | tr -d '\r')
+  if [ -n "$ENV_TIER" ] && [ "$ENV_TIER" != "free" ]; then
+    ENV_KEY=$(grep -E '^LICENSE_KEY=' .env | cut -d= -f2- | tr -d '\r')
+    ENV_RHOST=$(grep -E '^REGISTRY_HOST=' .env | cut -d= -f2- | tr -d '\r')
+    say "Re-authenticating to the license registry (saved key)…"
+    printf '%s' "$ENV_KEY" | docker login "${ENV_RHOST:-license.nullreport.app}" -u license --password-stdin >/dev/null \
+      || die "License registry login failed — your saved license may be inactive (see your portal)."
+  fi
+fi
+
 say "Pulling images (tier: $TIER)…"
 docker compose pull
 say "Starting…"
 # --remove-orphans so toggling Ollama off on a re-run actually stops its container.
 docker compose up -d --remove-orphans
 
+# Poll the API (through the frontend proxy) so the success line only prints once
+# the app is actually serving — first boot runs migrations + seed before it answers.
 printf '\n'
-say "NullReport is starting at http://localhost:$PORT"
-say "First boot runs DB setup — give it ~20s, then refresh."
+say "Waiting for NullReport to come up…"
+ready=""
+i=0
+while [ "$i" -lt 90 ]; do
+  if curl -fsS -o /dev/null --max-time 2 "http://localhost:$PORT/api/health" 2>/dev/null; then ready=1; break; fi
+  i=$((i + 1)); sleep 1
+done
+if [ -n "$ready" ]; then
+  say "NullReport is up at http://localhost:$PORT"
+else
+  say "Started, but the app didn't answer within 90s. Check: cd '$DIR' && docker compose logs -f"
+fi
 if [ -n "$FRESH_INSTALL" ]; then
   say "Log in as  admin  /  $ADMIN_PW   (you'll set a new password on first sign-in — save this one)"
 fi
