@@ -22,6 +22,14 @@ LICENSE_KEY="${LICENSE_KEY:-}"
 PORT="${FRONTEND_PORT:-3000}"
 WITH_OLLAMA="${WITH_OLLAMA:-}"
 
+# If launched from a directory that no longer exists (e.g. it was just deleted
+# with `rm -rf` from inside it), the shell's working directory is broken and
+# every subcommand prints "getcwd"/"chdir" errors. Step into $HOME so the run is
+# clean. A relative NULLREPORT_DIR then resolves under $HOME.
+if ! pwd -P >/dev/null 2>&1; then
+  cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+fi
+
 say() { printf '\033[1;35m▸\033[0m %s\n' "$1"; }
 die() { printf '\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 

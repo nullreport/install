@@ -15,6 +15,12 @@ DIR="${NULLREPORT_DIR:-nullreport}"
 say() { printf '\033[1;35m▸\033[0m %s\n' "$1"; }
 die() { printf '\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
+# Escape a deleted working directory (its inode is gone) so subcommands don't
+# emit "getcwd"/"chdir" errors; absolute install paths still resolve fine.
+if ! pwd -P >/dev/null 2>&1; then
+  cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+fi
+
 # If we're already inside the install dir (compose file present here), use it.
 if [ -f docker-compose.yml ]; then
   :
