@@ -60,7 +60,11 @@ if [ -z "$LICENSE_KEY" ] && [ -r /dev/tty ]; then
   LICENSE_KEY=$(normalize_key "$ans")
 fi
 
-# The key determines the tier; a TIER that disagrees with the key is ignored.
+# The key's prefix gives an INITIAL tier and validates the format. The prefix is
+# only a label fixed when the key was minted; a later plan change (e.g. Pro →
+# Team in the portal) updates the tier server-side but leaves the prefix as-is.
+# So for a paid key the server's tier (fetched in step 1b) is authoritative and
+# overrides this initial guess. An explicit TIER that disagrees is ignored.
 case "$LICENSE_KEY" in
   NR-PRO-*)  TIER=pro ;;
   NR-TEAM-*) TIER=team ;;
@@ -107,6 +111,18 @@ if [ "$TIER" != "free" ]; then
   PROJECT=$(basename "$DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
   STATUS=$(curl -fsS --max-time 8 -X POST "https://$REGISTRY_HOST/api/license/activation-status" \
     -H 'Content-Type: application/json' -d "{\"licenseKey\":\"$LICENSE_KEY\"}" 2>/dev/null || true)
+
+  # The key prefix can be stale after a plan change, so trust the server's tier
+  # over the prefix and re-point the image refs if they differ. If the server
+  # didn't answer (offline / older server), keep the prefix-derived tier.
+  SERVER_TIER=$(printf '%s' "$STATUS" | sed -n 's/.*"tier":"\([a-z]*\)".*/\1/p')
+  if { [ "$SERVER_TIER" = "pro" ] || [ "$SERVER_TIER" = "team" ]; } && [ "$SERVER_TIER" != "$TIER" ]; then
+    say "Your license is '$SERVER_TIER' (the key label still says '$TIER' from when it was issued). Using the $SERVER_TIER image."
+    TIER="$SERVER_TIER"
+    BACKEND_IMAGE="$REGISTRY_HOST/nullreport-backend-paid:$TIER"
+    FRONTEND_IMAGE="$REGISTRY_HOST/nullreport-frontend-paid:$TIER"
+  fi
+
   case "$STATUS" in
     *'"activated":true'*)
       # No local app-data volume => brand-new machine identity => won't match the
@@ -133,12 +149,21 @@ cd "$DIR"
 say "Downloading docker-compose.prod.yml…"
 curl -fsSL "$REPO_RAW/docker-compose.prod.yml" -o docker-compose.yml || die "Could not download the compose file."
 
-# Optional: bundle Ollama for local AI. A preset WITH_OLLAMA is an explicit
-# choice (1 = yes, anything else = no); otherwise ask when interactive. Track
-# whether a choice was actually made so a re-run only rewrites COMPOSE_FILE when
-# the user decided — never silently strips Ollama from a non-interactive re-run.
+# Optional: bundle Ollama for local AI. AI is a Pro/Team feature (the free image
+# has no AI routes at all), so only offer Ollama on a paid tier. Bundling a heavy
+# local-AI container that a free install can never use would just waste disk and
+# memory, so on free we skip the prompt entirely and ignore an explicit
+# WITH_OLLAMA. A preset WITH_OLLAMA is an explicit choice (1 = yes, anything else
+# = no); otherwise ask when interactive. OLLAMA_EXPLICIT tracks whether a choice
+# was actually made, so a re-run only rewrites COMPOSE_FILE when the user decided
+# and never silently strips Ollama from a non-interactive re-run.
 OLLAMA_EXPLICIT=""
-if [ -n "$WITH_OLLAMA" ]; then
+if [ "$TIER" = "free" ]; then
+  if [ "$WITH_OLLAMA" = "1" ]; then
+    say "Ignoring WITH_OLLAMA: local AI is a Pro/Team feature, so a free install can't use it."
+  fi
+  WITH_OLLAMA=""
+elif [ -n "$WITH_OLLAMA" ]; then
   OLLAMA_EXPLICIT=1
 elif [ -r /dev/tty ]; then
   printf '\033[1;35m▸\033[0m Set up local AI with Ollama (runs AI on this machine, ~heavy)? [y/N] '
