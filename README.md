@@ -29,20 +29,21 @@ http://localhost:3000.
 
 ### Options
 
-Prefix the command with any of these:
+Pass any of these on the `sh` at the **end** of the command (a variable placed
+before `curl` is handed to curl, not the installer, so it is ignored):
 
 ```sh
-# Activate a paid tier you purchased
-TIER=pro LICENSE_KEY=NR-PRO-xxxxx  curl -fsSL https://raw.githubusercontent.com/nullreport/install/main/install.sh | sh
+# Activate a paid tier you purchased (just your key; the tier is read from the server)
+curl -fsSL https://raw.githubusercontent.com/nullreport/install/main/install.sh | LICENSE_KEY=NR-xxxxx sh
 
 # Install into a specific directory
-NULLREPORT_DIR=/opt/nullreport     curl -fsSL .../install.sh | sh
+curl -fsSL .../install.sh | NULLREPORT_DIR=/opt/nullreport sh
 
 # Serve on a different port
-FRONTEND_PORT=8080                 curl -fsSL .../install.sh | sh
+curl -fsSL .../install.sh | FRONTEND_PORT=8080 sh
 
 # Bundle a local Ollama for on-device AI (heavier; runs AI on this machine)
-WITH_OLLAMA=1                      curl -fsSL .../install.sh | sh
+curl -fsSL .../install.sh | WITH_OLLAMA=1 sh
 ```
 
 Re-running the installer is safe: it reuses your existing `.env`, so your
@@ -60,8 +61,9 @@ preserved.
 
 ## Tiers
 
-NullReport ships as one stack with three tiers. The `TIER` value in your `.env`
-selects which images are pulled.
+NullReport ships as one stack with three tiers. Pass your `LICENSE_KEY` to the
+installer and it reads your tier from the license server and pulls the matching
+images; the free command with no key installs the Free tier.
 
 | Tier | What you get |
 |------|--------------|
