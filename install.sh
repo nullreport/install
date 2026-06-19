@@ -60,16 +60,17 @@ if [ -z "$LICENSE_KEY" ] && [ -r /dev/tty ]; then
   LICENSE_KEY=$(normalize_key "$ans")
 fi
 
-# The key's prefix gives an INITIAL tier and validates the format. The prefix is
-# only a label fixed when the key was minted; a later plan change (e.g. Pro →
-# Team in the portal) updates the tier server-side but leaves the prefix as-is.
-# So for a paid key the server's tier (fetched in step 1b) is authoritative and
-# overrides this initial guess. An explicit TIER that disagrees is ignored.
+# Tier handling. The server is authoritative: any paid key's real tier is read
+# from /api/license/activation-status in step 1b and overrides whatever we guess
+# here. Current keys are tier-neutral (NR-<random>); older keys carry an
+# NR-PRO-/NR-TEAM- prefix that can be stale after a plan change. We accept both:
+# the legacy prefix is used only as a fallback hint if the server is unreachable.
 case "$LICENSE_KEY" in
-  NR-PRO-*)  TIER=pro ;;
-  NR-TEAM-*) TIER=team ;;
   "")        TIER=free ;;
-  *) die "That doesn't look like a NullReport license key (expected NR-PRO-… or NR-TEAM-…)." ;;
+  NR-TEAM-*) TIER=team ;;   # legacy prefix, fallback hint only
+  NR-PRO-*)  TIER=pro ;;    # legacy prefix, fallback hint only
+  NR-*)      TIER=pro ;;    # tier-neutral key: provisional; server decides the real tier
+  *) die "That doesn't look like a NullReport license key (it should start with NR-)." ;;
 esac
 
 # Image references. Free images are public on ghcr (no login). Paid images are
