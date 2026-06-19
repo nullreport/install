@@ -149,14 +149,15 @@ cd "$DIR"
 say "Downloading docker-compose.prod.yml…"
 curl -fsSL "$REPO_RAW/docker-compose.prod.yml" -o docker-compose.yml || die "Could not download the compose file."
 
-# Optional: bundle Ollama for local AI. AI is a Pro/Team feature (the free image
-# has no AI routes at all), so only offer Ollama on a paid tier. Bundling a heavy
-# local-AI container that a free install can never use would just waste disk and
-# memory, so on free we skip the prompt entirely and ignore an explicit
-# WITH_OLLAMA. A preset WITH_OLLAMA is an explicit choice (1 = yes, anything else
-# = no); otherwise ask when interactive. OLLAMA_EXPLICIT tracks whether a choice
-# was actually made, so a re-run only rewrites COMPOSE_FILE when the user decided
-# and never silently strips Ollama from a non-interactive re-run.
+# Optional: bundle Ollama for local AI. One rule: offer it when the tier is PAID
+# and it is NOT already set up.
+#   - free            -> never (the free image has no AI routes); ignore WITH_OLLAMA.
+#   - WITH_OLLAMA set -> honor it (1 = add, anything else = remove).
+#   - paid, not bundled yet -> ask (a fresh paid install OR a free->paid upgrade).
+#   - paid, already bundled -> stay quiet (a re-run never nags or strips it).
+# "Already bundled" = the saved COMPOSE_FILE in .env includes the Ollama override.
+# OLLAMA_EXPLICIT marks that a choice was made THIS run, so the .env COMPOSE_FILE
+# is only rewritten when the user actually decided (never silently changed).
 OLLAMA_EXPLICIT=""
 if [ "$TIER" = "free" ]; then
   if [ "$WITH_OLLAMA" = "1" ]; then
@@ -164,18 +165,16 @@ if [ "$TIER" = "free" ]; then
   fi
   WITH_OLLAMA=""
 elif [ -n "$WITH_OLLAMA" ]; then
-  # Explicit choice, honored on fresh installs AND re-runs: WITH_OLLAMA=1 adds
-  # Ollama, any other value (e.g. 0) removes it.
   OLLAMA_EXPLICIT=1
-elif [ ! -f .env ] && [ -r /dev/tty ]; then
-  # Ask ONCE, only on a fresh interactive install. On a re-run we leave the
-  # existing Ollama choice untouched, so re-running (e.g. to change tier) never
-  # nags about Ollama and never silently strips a bundled one. To change it
-  # later: re-run with WITH_OLLAMA=1 to add, or WITH_OLLAMA=0 to remove.
-  printf '\033[1;35m▸\033[0m Set up local AI with Ollama (runs AI on this machine, ~heavy)? [y/N] '
-  read ans </dev/tty || ans=""
-  case "$ans" in [Yy]*) WITH_OLLAMA=1 ;; *) WITH_OLLAMA="" ;; esac
-  OLLAMA_EXPLICIT=1
+else
+  _has_ollama=""
+  [ -f .env ] && grep -Eq '^COMPOSE_FILE=.*ollama' .env && _has_ollama=1
+  if [ -z "$_has_ollama" ] && [ -r /dev/tty ]; then
+    printf '\033[1;35m▸\033[0m Set up local AI with bundled Ollama (runs AI on this machine, ~heavy)? [y/N] '
+    read ans </dev/tty || ans=""
+    case "$ans" in [Yy]*) WITH_OLLAMA=1 ;; *) WITH_OLLAMA="" ;; esac
+    OLLAMA_EXPLICIT=1
+  fi
 fi
 COMPOSE_FILES="docker-compose.yml"
 if [ "$WITH_OLLAMA" = "1" ]; then
