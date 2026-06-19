@@ -164,8 +164,14 @@ if [ "$TIER" = "free" ]; then
   fi
   WITH_OLLAMA=""
 elif [ -n "$WITH_OLLAMA" ]; then
+  # Explicit choice, honored on fresh installs AND re-runs: WITH_OLLAMA=1 adds
+  # Ollama, any other value (e.g. 0) removes it.
   OLLAMA_EXPLICIT=1
-elif [ -r /dev/tty ]; then
+elif [ ! -f .env ] && [ -r /dev/tty ]; then
+  # Ask ONCE, only on a fresh interactive install. On a re-run we leave the
+  # existing Ollama choice untouched, so re-running (e.g. to change tier) never
+  # nags about Ollama and never silently strips a bundled one. To change it
+  # later: re-run with WITH_OLLAMA=1 to add, or WITH_OLLAMA=0 to remove.
   printf '\033[1;35m▸\033[0m Set up local AI with Ollama (runs AI on this machine, ~heavy)? [y/N] '
   read ans </dev/tty || ans=""
   case "$ans" in [Yy]*) WITH_OLLAMA=1 ;; *) WITH_OLLAMA="" ;; esac
