@@ -189,6 +189,19 @@ gen() { openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx
 
 ADMIN_PW=""
 FRESH_INSTALL=""
+# Compose project name = lowercased dir basename; used to find this install's
+# docker volumes.
+PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+# Does the database volume already exist BEFORE we launch? A brand-new db volume
+# means the backend seeds a fresh admin user from ADMIN_INITIAL_PASSWORD on first
+# boot — so we must show that password at the end EVEN when reusing an existing
+# .env (e.g. a leftover .env but a wiped/new db, which is easy to hit). An
+# existing db means the admin already exists (and may have changed their
+# password), so we stay quiet rather than print a stale one.
+FRESH_DB=""
+if ! { command -v docker >/dev/null 2>&1 && docker volume inspect "${PROJECT}_db-data" >/dev/null 2>&1; }; then
+  FRESH_DB=1
+fi
 if [ -f .env ]; then
   say "Reusing existing .env (secrets preserved)."
   umask 077  # keep .env (and the .env.tmp set_env writes) owner-only
@@ -287,8 +300,16 @@ if [ -n "$ready" ]; then
 else
   say "Started, but the app didn't answer within 90s. Check: cd '$DIR' && docker compose logs -f"
 fi
-if [ -n "$FRESH_INSTALL" ]; then
-  say "Log in as  admin  /  $ADMIN_PW   (you'll set a new password on first sign-in — save this one)"
+# Surface the admin login whenever a fresh database was created (a new admin user
+# is seeded from ADMIN_INITIAL_PASSWORD), whether the .env was freshly generated
+# or reused. On an existing db the admin already exists, so we stay quiet.
+if [ -n "$FRESH_DB" ]; then
+  [ -z "$ADMIN_PW" ] && ADMIN_PW=$(grep -E '^ADMIN_INITIAL_PASSWORD=' .env 2>/dev/null | cut -d= -f2- | tr -d '\r')
+  if [ -n "$ADMIN_PW" ]; then
+    say "Log in as  admin  /  $ADMIN_PW   (you'll set a new password on first sign-in — save this one)"
+  else
+    say "Log in as  admin  — your password is in $DIR/.env (the ADMIN_INITIAL_PASSWORD line)."
+  fi
 fi
 if [ "$WITH_OLLAMA" = "1" ]; then
   say "Local AI is bundled — open Settings → AI → Ollama and click a model to download it."
